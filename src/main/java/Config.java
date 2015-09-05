@@ -1,3 +1,5 @@
+import java.util.List;
+
 /**
  * Created by terabyte on 23/12/2014.
  */
@@ -11,7 +13,16 @@ public class Config {
     private String dataSize;
     private String mountArea;
     private String mountName;
-
+    private String os;
+    private String stackScriptLabel;
+    private String stackScriptDescription;
+    private boolean stackScriptPublic;
+    private String stackScriptRevisionNote;
+    private String stackScript;
+    private List<Disk> disks;
+    private String rootPassword;
+    private String rootSshKey;
+    
     public int getRam() {
         return ram;
     }
@@ -103,4 +114,76 @@ public class Config {
     }
 
     private String puppetScriptPath = name+"/"+name+".pp";
+
+    public String getOs() {
+        return os;
+    }
+
+    public void setOs(String os) {
+        this.os = os;
+    }
+
+    public String getStackScriptLabel() {
+        return stackScriptLabel;
+    }
+
+    public void setStackScriptLabel(String stackScriptLabel) {
+        this.stackScriptLabel = stackScriptLabel;
+    }
+
+    public String getStackScriptDescription() {
+        return stackScriptDescription;
+    }
+
+    public void setStackScriptDescription(String stackScriptDescription) {
+        this.stackScriptDescription = stackScriptDescription;
+    }
+
+    public boolean isStackScriptPublic() {
+        return stackScriptPublic;
+    }
+
+    public void setStackScriptPublic(boolean stackScriptPublic) {
+        this.stackScriptPublic = stackScriptPublic;
+    }
+
+    public String getStackScriptRevisionNote() {
+        return stackScriptRevisionNote;
+    }
+
+    public void setStackScriptRevisionNote(String stackScriptRevisionNote) {
+        this.stackScriptRevisionNote = stackScriptRevisionNote;
+    }
+
+    public String getStackScript() {
+        return stackScript;
+    }
+
+    public void setStackScript(String stackScript) {
+        this.stackScript = stackScript;
+    }
+
+    public List<Disk> getDisks() {
+        return disks;
+    }
+
+    public void setDisks(List<Disk> disks) {
+        this.disks = disks;
+    }
+
+    public String getRootPassword() {
+        return rootPassword;
+    }
+
+    public void setRootPassword(String rootPassword) {
+        this.rootPassword = rootPassword;
+    }
+
+    public String getRootSshKey() {
+        return rootSshKey;
+    }
+
+    public void setRootSshKey(String rootSshKey) {
+        this.rootSshKey = rootSshKey;
+    }
 }
