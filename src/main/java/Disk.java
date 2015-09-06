@@ -1,3 +1,4 @@
+import java.util.ArrayList;
 import java.util.List;
 
 
@@ -45,5 +46,14 @@ public class Disk {
         }
         return null;
     }
+	public static List<Disk> findSecondary(List<Disk> disks) {
+		List<Disk> secondaryDisks = new ArrayList<Disk>(disks.size());
+		for (Disk disk : disks){
+            if (!disk.isPrimary()) {
+            	secondaryDisks.add(disk);
+            }
+        }
+		return secondaryDisks;
+	}
     
 }
