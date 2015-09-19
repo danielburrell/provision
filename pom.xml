@@ -6,6 +6,7 @@
     <packaging>pom</packaging>
     <modules>
         <module>provision-core</module>
+        <module>provision-cli</module>
     </modules>
     <dependencyManagement>
         <dependencies>

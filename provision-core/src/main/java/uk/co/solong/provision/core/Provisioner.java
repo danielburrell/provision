@@ -8,4 +8,5 @@ public interface Provisioner {
     public void buildFirstTime(LinodeConfig config) throws IOException, LinodeExists;
     public void rebuildLoseData(LinodeConfig config) throws IOException, LinodeExists;
     public void rebuildKeepData(LinodeConfig config);
+    public void destroy(LinodeConfig config);
 }

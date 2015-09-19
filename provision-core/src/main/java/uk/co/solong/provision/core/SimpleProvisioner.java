@@ -23,17 +23,17 @@ import uk.co.solong.linode4j.mappings.UnknownMapping;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-
 /**
  * Created by terabyte on 23/12/2014.
  */
 public class SimpleProvisioner implements Provisioner {
     private Linode linode;
     private JobManager jobManager;
+    private PasswordGenerator passwordGenerator = new PasswordGenerator();
     private static final Logger logger = LoggerFactory.getLogger(SimpleProvisioner.class);
 
-    SimpleProvisioner() {
-        linode = new Linode("uffd3swMzjHN9CYh5lZHt4rtS17N2JtBlQrxfXgWUxpBrJkRRL9Yu7c3fD8G4fHe");
+    public SimpleProvisioner(Linode linode) {
+        this.linode = linode; 
         jobManager = new JobManager(linode);
     }
 
@@ -144,8 +144,12 @@ public class SimpleProvisioner implements Provisioner {
         ObjectMapper m = new ObjectMapper();
         Map<String, String> responses = new HashMap<String, String>();
         JsonNode udfResponses = m.valueToTree(responses);
+        String password = config.getRootPassword();
+        if (config.isGenerateUnknownPassword()){
+            password = passwordGenerator.nextSessionId();
+        }
         JsonNode createDiskResult = linode.createLinodeDiskFromStackScript(linodeId, stackScriptId, udfResponses, distributionId, primary.getLabel(),
-                primary.getSize(), config.getRootPassword())
+                primary.getSize(), password)
         // .withRootSSHKey(config.getRootSshKey())
                 .asJson();
 
@@ -192,34 +196,7 @@ public class SimpleProvisioner implements Provisioner {
 
     @Override
     public void rebuildLoseData(LinodeConfig config) throws IOException, LinodeExists {
-        // find the linodeId by config label
-        logger.info("Destroying and rebuilding linode (destroy data)");
-        logger.info("Finding linode");
-        JsonNode linodeList = linode.listLinode().asJson();
-        LinodeMapper linodeMapper = new LinodeMapper(linodeList);
-        int linodeId = linodeMapper.getLinodeIdFromLabel(config.getName());
-        logger.info("Shutting down linode");
-        JsonNode shutDownResult = linode.shutdownLinode(linodeId).asJson();
-        int jobId = shutDownResult.get("DATA").get("JobID").asInt();
-        JsonNode n = jobManager.waitForJob(linodeId, jobId);
-
-        JsonNode linodeDisks = linode.listLinodeDisk(linodeId).asJson();
-        // find the diskId of the disk with the label found above.
-        DiskMapper diskMapper = new DiskMapper(linodeDisks);
-        List<Disk> disks = config.getDisks();
-        for (Disk disk : disks) {
-            try {
-                logger.info("Deleting disk {} ", disk.getLabel());
-                int diskId = diskMapper.getDiskIdFromLabel(disk.getLabel());
-                JsonNode deleteDiskResult = linode.deleteLinodeDisk(linodeId, diskId).asJson();
-                int deleteDiskJobId = deleteDiskResult.get("DATA").get("JobID").asInt();
-                JsonNode waitForJobResult = jobManager.waitForJob(linodeId, deleteDiskJobId);
-            } catch (UnknownMapping m) {
-                logger.warn("Disk doesn't exist or is already deleted {}", disk.getLabel());
-            }
-        }
-        logger.info("Deleting linode");
-        JsonNode deleteLinodeResult = linode.deleteLinode(linodeId).asJson();
+        destroy(config);
 
         buildFirstTime(config);
     }
@@ -340,6 +317,38 @@ public class SimpleProvisioner implements Provisioner {
         int jobId = bootResult.get("DATA").get("JobID").asInt();
         JsonNode bootJobStatus = jobManager.waitForJob(linodeId, jobId);
         logger.info("Done");
+    }
+
+    @Override
+    public void destroy(LinodeConfig config) {
+        // find the linodeId by config label
+        logger.info("Destroying and rebuilding linode (destroy data)");
+        logger.info("Finding linode");
+        JsonNode linodeList = linode.listLinode().asJson();
+        LinodeMapper linodeMapper = new LinodeMapper(linodeList);
+        int linodeId = linodeMapper.getLinodeIdFromLabel(config.getName());
+        logger.info("Shutting down linode");
+        JsonNode shutDownResult = linode.shutdownLinode(linodeId).asJson();
+        int jobId = shutDownResult.get("DATA").get("JobID").asInt();
+        JsonNode n = jobManager.waitForJob(linodeId, jobId);
+
+        JsonNode linodeDisks = linode.listLinodeDisk(linodeId).asJson();
+        // find the diskId of the disk with the label found above.
+        DiskMapper diskMapper = new DiskMapper(linodeDisks);
+        List<Disk> disks = config.getDisks();
+        for (Disk disk : disks) {
+            try {
+                logger.info("Deleting disk {} ", disk.getLabel());
+                int diskId = diskMapper.getDiskIdFromLabel(disk.getLabel());
+                JsonNode deleteDiskResult = linode.deleteLinodeDisk(linodeId, diskId).asJson();
+                int deleteDiskJobId = deleteDiskResult.get("DATA").get("JobID").asInt();
+                JsonNode waitForJobResult = jobManager.waitForJob(linodeId, deleteDiskJobId);
+            } catch (UnknownMapping m) {
+                logger.warn("Disk doesn't exist or is already deleted {}", disk.getLabel());
+            }
+        }
+        logger.info("Deleting linode");
+        JsonNode deleteLinodeResult = linode.deleteLinode(linodeId).asJson();
     }
 
 }
