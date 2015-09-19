@@ -2,6 +2,9 @@ package uk.co.solong.provision.cli;
 
 import java.io.IOException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import uk.co.solong.application.annotations.CommandLine;
 import uk.co.solong.provision.core.LinodeConfig;
 import uk.co.solong.provision.core.LinodeExists;
@@ -13,8 +16,16 @@ import asg.cliche.Param;
 @CommandLine(prompt = ">")
 public class ProvisionerCLI {
 
+    private static final Logger logger = LoggerFactory.getLogger(ProvisionerCLI.class);
     private final Provisioner provisioner;
     private final PlantConfig plantConfig;
+    
+    @Command(description = "Lists all machines in this configuration")
+    public void machines() {
+        for (LinodeConfig config : plantConfig.getLinodeConfigs()){
+            logger.info(config.getName());
+        }
+    }
     
     @Command(description = "Upgrades the existing server without destroying data.")
     public void upgrade(@Param(name = "Machine") String machine) {
