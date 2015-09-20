@@ -1,9 +1,13 @@
 package uk.co.solong.provision.core;
 
 import java.io.IOException;
-import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +24,7 @@ import uk.co.solong.linode4j.mappings.PlanMapper;
 import uk.co.solong.linode4j.mappings.StackScriptMapper;
 import uk.co.solong.linode4j.mappings.UnknownMapping;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -36,9 +41,9 @@ public class SimpleProvisioner implements Provisioner {
         this.linode = linode; 
         jobManager = new JobManager(linode);
     }
-
+ 
     @Override
-    public void buildFirstTime(LinodeConfig config) throws IOException, LinodeExists {
+    public void buildFirstTime(LinodeConfig config) throws IOException, LinodeExists, InterruptedException {
         // in order to create a linode, we need a data center (derived from a
         // region) and a plan).
         // we now derive that information from the config
@@ -84,12 +89,28 @@ public class SimpleProvisioner implements Provisioner {
         // now create a disk image using the stackscript by creating the primary
         // followed by any others as secondaries.
         List<Disk> disks = config.getDisks();
-        logger.info("Creating primary disk");
-        createPrimaryDisk(config, linodeId, distributionId, stackScriptId, disks);
-        logger.info("Creating secondary disk");
-        createSecondaryDisks(linodeId, disks);
-        logger.info("Creating swap disk");
-        createSwapDisk(linodeId, disks);
+        
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+        
+        Collection<Callable<Void>> tasks = new ArrayList<Callable<Void>>(3);
+        tasks.add(() -> {
+            logger.info("Creating primary disk");
+            createPrimaryDisk(config, linodeId, distributionId, stackScriptId, disks);
+            return Void.TYPE.newInstance();
+        });
+        tasks.add(() -> {
+            logger.info("Creating secondary disk");
+            createSecondaryDisks(linodeId, disks);
+            return Void.TYPE.newInstance();
+        });
+        tasks.add(() -> {
+            logger.info("Creating swap disk");
+            createSwapDisk(linodeId, disks);
+            return Void.TYPE.newInstance();
+        });
+        executor.invokeAll(tasks);
+       
+       
 
         // linode.createc
         // wait for job to complete
@@ -117,7 +138,7 @@ public class SimpleProvisioner implements Provisioner {
         // linode.boot(linodeId,configId);
         int jobId = bootResult.get("DATA").get("JobID").asInt();
         JsonNode jobStatus = jobManager.waitForJob(linodeId, jobId);
-
+        logger.info("Done");
     }
 
     private void createSwapDisk(int linodeId, List<Disk> disks) {
@@ -133,17 +154,37 @@ public class SimpleProvisioner implements Provisioner {
         List<Disk> secondaryDisks = Disk.findSecondary(disks);
         for (Disk disk : secondaryDisks) {
             JsonNode secondaryDiskResult = linode.createLinodeDisk(linodeId, disk.getLabel(), disk.getType(), disk.getSize()).asJson();
-            int jobId = secondaryDiskResult.get("DATA").get("JobID").asInt();
+            ObjectMapper m = new ObjectMapper();
+            try {
+                logger.info("Result:{}",m.writeValueAsString(secondaryDiskResult));
+            } catch (JsonProcessingException e1) {
+                // TODO Auto-generated catch block
+                e1.printStackTrace();
+            }
+            int jobId = secondaryDiskResult.get("DATA").get("JobID").asInt(-1);
+            if (jobId != -1) {
             JsonNode jobStatus = jobManager.waitForJob(linodeId, jobId);
             disk.setDiskId(secondaryDiskResult.get("DATA").get("DiskID").asInt());
+            } else {
+               
+                try {
+                    logger.error("And error occured while creating a secondary disk {}",m.writeValueAsString(secondaryDiskResult));
+                } catch (JsonProcessingException e) {
+                    // TODO Auto-generated catch block
+                    e.printStackTrace();
+                }
+                
+            }
         }
     }
 
     private void createPrimaryDisk(LinodeConfig config, int linodeId, int distributionId, int stackScriptId, List<Disk> disks) {
         Disk primary = Disk.findPrimary(disks);
         ObjectMapper m = new ObjectMapper();
-        Map<String, String> responses = new HashMap<String, String>();
+        Map<String, String> responses = config.getStackScriptResponses();
         JsonNode udfResponses = m.valueToTree(responses);
+        logger.info("UDF Responses {}", udfResponses);
+        
         String password = config.getRootPassword();
         if (config.isGenerateUnknownPassword()){
             password = passwordGenerator.nextSessionId();
@@ -195,7 +236,7 @@ public class SimpleProvisioner implements Provisioner {
     }
 
     @Override
-    public void rebuildLoseData(LinodeConfig config) throws IOException, LinodeExists {
+    public void rebuildLoseData(LinodeConfig config) throws IOException, LinodeExists, InterruptedException {
         destroy(config);
 
         buildFirstTime(config);
@@ -289,7 +330,7 @@ public class SimpleProvisioner implements Provisioner {
         // linode.createc
         // wait for job to complete
         logger.info("Finding kernels");
-        JsonNode availableKernels = linode.availableKernels().asJson();
+        JsonNode availableKernels = linode.availableKernels().withIsXen(true).asJson();
         KernelMapper kernelMapper = new KernelMapper(availableKernels);
 
         Integer kernelId = null;
@@ -336,19 +377,22 @@ public class SimpleProvisioner implements Provisioner {
         // find the diskId of the disk with the label found above.
         DiskMapper diskMapper = new DiskMapper(linodeDisks);
         List<Disk> disks = config.getDisks();
-        for (Disk disk : disks) {
+        
+        disks.parallelStream().forEach( (disk) -> {
             try {
                 logger.info("Deleting disk {} ", disk.getLabel());
                 int diskId = diskMapper.getDiskIdFromLabel(disk.getLabel());
                 JsonNode deleteDiskResult = linode.deleteLinodeDisk(linodeId, diskId).asJson();
                 int deleteDiskJobId = deleteDiskResult.get("DATA").get("JobID").asInt();
                 JsonNode waitForJobResult = jobManager.waitForJob(linodeId, deleteDiskJobId);
+                logger.info("Disk deleted");
             } catch (UnknownMapping m) {
                 logger.warn("Disk doesn't exist or is already deleted {}", disk.getLabel());
             }
-        }
+        });
         logger.info("Deleting linode");
         JsonNode deleteLinodeResult = linode.deleteLinode(linodeId).asJson();
+        logger.info("Done");
     }
 
 }

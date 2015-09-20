@@ -1,5 +1,6 @@
 package uk.co.solong.provision.core;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Created by terabyte on 23/12/2014.
@@ -23,6 +24,7 @@ public class LinodeConfig {
     private boolean bit64Kernel; //set to true if you want to use 64 bit kernel
     private boolean latestKernel; //set to true if you want to use the latest kernel
     private String kernel; //optional provide the kernel manually if you don't want to use the latest.
+    private Map<String,String> stackScriptResponses;
     
     public int getRam() {
         return ram;
@@ -187,5 +189,13 @@ public class LinodeConfig {
 
     public void setKernel(String kernel) {
         this.kernel = kernel;
+    }
+
+    public Map<String, String> getStackScriptResponses() {
+        return stackScriptResponses;
+    }
+
+    public void setStackScriptResponses(Map<String, String> stackScriptResponses) {
+        this.stackScriptResponses = stackScriptResponses;
     }
 }

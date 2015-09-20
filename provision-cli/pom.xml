@@ -7,6 +7,7 @@
     </parent>
     <artifactId>provision-cli</artifactId>
     <dependencies>
+    
         <dependency>
             <groupId>uk.co.solong</groupId>
             <artifactId>application</artifactId>

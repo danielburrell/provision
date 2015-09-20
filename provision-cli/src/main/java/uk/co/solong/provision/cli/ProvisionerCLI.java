@@ -42,7 +42,7 @@ public class ProvisionerCLI {
             if (config.getName().equals(machine)) {
                 try {
                     provisioner.rebuildLoseData(config);
-                } catch (IOException | LinodeExists e) {
+                } catch (IOException | LinodeExists | InterruptedException e) {
                     // TODO Auto-generated catch block
                     e.printStackTrace();
                 }
@@ -60,7 +60,7 @@ public class ProvisionerCLI {
     }
 
     @Command(description = "Builds the server for the first time.")
-    public void build(@Param(name = "Machine") String machine) throws IOException, LinodeExists {
+    public void build(@Param(name = "Machine") String machine) throws IOException, LinodeExists, InterruptedException {
         for (LinodeConfig config : plantConfig.getLinodeConfigs()){
             if (config.getName().equals(machine)) {
                 provisioner.buildFirstTime(config);
