@@ -9,14 +9,18 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import javax.inject.Inject;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 import uk.co.solong.linode4j.Linode;
 import uk.co.solong.linode4j.jobmanager.JobManager;
 import uk.co.solong.linode4j.mappings.DataCenterMapper;
 import uk.co.solong.linode4j.mappings.DiskMapper;
 import uk.co.solong.linode4j.mappings.DistributionMapper;
+import uk.co.solong.linode4j.mappings.DomainMapper;
 import uk.co.solong.linode4j.mappings.KernelMapper;
 import uk.co.solong.linode4j.mappings.LinodeConfigMapper;
 import uk.co.solong.linode4j.mappings.LinodeMapper;
@@ -31,19 +35,22 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * Created by terabyte on 23/12/2014.
  */
+
 public class SimpleProvisioner implements Provisioner {
+
+    private ObjectMapper objectMapper = new ObjectMapper();
     private Linode linode;
     private JobManager jobManager;
     private PasswordGenerator passwordGenerator = new PasswordGenerator();
     private static final Logger logger = LoggerFactory.getLogger(SimpleProvisioner.class);
 
     public SimpleProvisioner(Linode linode) {
-        this.linode = linode; 
+        this.linode = linode;
         jobManager = new JobManager(linode);
     }
- 
+
     @Override
-    public void buildFirstTime(LinodeConfig config) throws IOException, LinodeExists, InterruptedException {
+    public void buildFirstTime(LinodeConfiguration config) throws IOException, LinodeExists, InterruptedException {
         // in order to create a linode, we need a data center (derived from a
         // region) and a plan).
         // we now derive that information from the config
@@ -89,9 +96,9 @@ public class SimpleProvisioner implements Provisioner {
         // now create a disk image using the stackscript by creating the primary
         // followed by any others as secondaries.
         List<Disk> disks = config.getDisks();
-        
+
         ExecutorService executor = Executors.newFixedThreadPool(3);
-        
+
         Collection<Callable<Void>> tasks = new ArrayList<Callable<Void>>(3);
         tasks.add(() -> {
             logger.info("Creating primary disk");
@@ -109,8 +116,6 @@ public class SimpleProvisioner implements Provisioner {
             return Void.TYPE.newInstance();
         });
         executor.invokeAll(tasks);
-       
-       
 
         // linode.createc
         // wait for job to complete
@@ -139,6 +144,51 @@ public class SimpleProvisioner implements Provisioner {
         int jobId = bootResult.get("DATA").get("JobID").asInt();
         JsonNode jobStatus = jobManager.waitForJob(linodeId, jobId);
         logger.info("Done");
+        createOrUpdateDomains(config, linodeId);
+    }
+
+    private void createOrUpdateDomains(LinodeConfiguration config, int linodeId) {
+        // TODO Auto-generated method stub
+        JsonNode domainList = linode.listDomains().asJson();
+        for (Domain domain : config.getDomains()) {
+            JsonNode asJson = linode.listIP().withLinodeId(linodeId).asJson();
+            String ip = extractIPs(asJson);
+            if (ip != null) {
+                DomainMapper d = new DomainMapper(domainList);
+                Integer domainId = d.getDomainIdFromDomainName(domain.getDomain());
+                if (domainId != null) {
+                    JsonNode deleteDomainResult = linode.deleteDomain(domainId).asJson();
+                    logger.info("Deleting domain {}", domain.getDomain());
+                } else {
+                    logger.info("Domain does not exist {}",domain.getDomain());
+                }
+                logger.info("Creating Domain {}",domain.getDomain());
+                JsonNode createDomainResult = linode.createDomain(domain.getDomain(), domain.getType()).withAxfrIps(domain.getAxfrIps())
+                        .withDescription(domain.getDescription()).withExpireSec(domain.getExpireSec()).withLpmDisplayGroup(domain.getLpmDisplayGroup())
+                        .withMasterIps(domain.getMasterIps()).withRefreshSec(domain.getRefreshSec()).withSoaEmail(domain.getSoaEmail())
+                        .withStatus(domain.getStatus()).withTtlSec(domain.getTtlSec()).asJson();
+                logger.info("{}",createDomainResult);
+                int newDomainId = createDomainResult.get("DATA").get("DomainID").asInt();
+                for (DomainResource domainResource : domain.getDomainResources()) {
+                    logger.info("Creating Domain Resource");
+                    linode.createDomainResource(newDomainId, domainResource.getType()).withName(domainResource.getName()).withPort(domainResource.getPort())
+                            .withPriority(domainResource.getPriority()).withProtocol(domainResource.getProtocol()).withTarget(domainResource.getTarget())
+                            .withTtlSec(domainResource.getTtlSec()).withWeight(domainResource.getWeight()).asJson();
+                }
+
+            }
+        }
+    }
+
+    private String extractIPs(JsonNode asJson) {
+        JsonNode ips = asJson.get("DATA");
+        for (JsonNode ip : ips) {
+            boolean isPublic = ip.get("ISPUBLIC").asBoolean();
+            if (isPublic) {
+                return ip.get("IPADDRESS").asText();
+            }
+        }
+        return null;
     }
 
     private void createSwapDisk(int linodeId, List<Disk> disks) {
@@ -156,37 +206,37 @@ public class SimpleProvisioner implements Provisioner {
             JsonNode secondaryDiskResult = linode.createLinodeDisk(linodeId, disk.getLabel(), disk.getType(), disk.getSize()).asJson();
             ObjectMapper m = new ObjectMapper();
             try {
-                logger.info("Result:{}",m.writeValueAsString(secondaryDiskResult));
+                logger.info("Result:{}", m.writeValueAsString(secondaryDiskResult));
             } catch (JsonProcessingException e1) {
                 // TODO Auto-generated catch block
                 e1.printStackTrace();
             }
             int jobId = secondaryDiskResult.get("DATA").get("JobID").asInt(-1);
             if (jobId != -1) {
-            JsonNode jobStatus = jobManager.waitForJob(linodeId, jobId);
-            disk.setDiskId(secondaryDiskResult.get("DATA").get("DiskID").asInt());
+                JsonNode jobStatus = jobManager.waitForJob(linodeId, jobId);
+                disk.setDiskId(secondaryDiskResult.get("DATA").get("DiskID").asInt());
             } else {
-               
+
                 try {
-                    logger.error("And error occured while creating a secondary disk {}",m.writeValueAsString(secondaryDiskResult));
+                    logger.error("And error occured while creating a secondary disk {}", m.writeValueAsString(secondaryDiskResult));
                 } catch (JsonProcessingException e) {
                     // TODO Auto-generated catch block
                     e.printStackTrace();
                 }
-                
+
             }
         }
     }
 
-    private void createPrimaryDisk(LinodeConfig config, int linodeId, int distributionId, int stackScriptId, List<Disk> disks) {
+    private void createPrimaryDisk(LinodeConfiguration config, int linodeId, int distributionId, int stackScriptId, List<Disk> disks) {
         Disk primary = Disk.findPrimary(disks);
         ObjectMapper m = new ObjectMapper();
         Map<String, String> responses = config.getStackScriptResponses();
         JsonNode udfResponses = m.valueToTree(responses);
         logger.info("UDF Responses {}", udfResponses);
-        
+
         String password = config.getRootPassword();
-        if (config.isGenerateUnknownPassword()){
+        if (config.isGenerateUnknownPassword()) {
             password = passwordGenerator.nextSessionId();
         }
         JsonNode createDiskResult = linode.createLinodeDiskFromStackScript(linodeId, stackScriptId, udfResponses, distributionId, primary.getLabel(),
@@ -205,7 +255,7 @@ public class SimpleProvisioner implements Provisioner {
         // waiting.
     }
 
-    private int extractLinodeId(int dataCenterId, int planId, LinodeConfig config) throws LinodeExists {
+    private int extractLinodeId(int dataCenterId, int planId, LinodeConfiguration config) throws LinodeExists {
         // actually create the linode
         // check linode doesn't already exist
         JsonNode linodes = linode.listLinode().asJson();
@@ -221,14 +271,14 @@ public class SimpleProvisioner implements Provisioner {
 
     }
 
-    private int extractPlanId(LinodeConfig config) {
+    private int extractPlanId(LinodeConfiguration config) {
         JsonNode plans = linode.availableLinodePlans().asJson();
         PlanMapper m = new PlanMapper(plans);
         int planId = m.getPlanIdFromRam(config.getRam());
         return planId;
     }
 
-    private int extractDataCenterId(LinodeConfig config) {
+    private int extractDataCenterId(LinodeConfiguration config) {
         JsonNode node = linode.availableDataCenters().asJson();
         DataCenterMapper dcm = new DataCenterMapper(node);
         int dataCenterId = dcm.getDataCenterIdFromAbbr(config.getRegion());
@@ -236,13 +286,13 @@ public class SimpleProvisioner implements Provisioner {
     }
 
     @Override
-    public void rebuildLoseData(LinodeConfig config) throws IOException, LinodeExists, InterruptedException {
+    public void rebuildLoseData(LinodeConfiguration config) throws IOException, LinodeExists, InterruptedException {
         destroy(config);
 
         buildFirstTime(config);
     }
 
-    private void discoverSecondaryDisk(LinodeConfig config, DiskMapper diskMapper) {
+    private void discoverSecondaryDisk(LinodeConfiguration config, DiskMapper diskMapper) {
         // TODO Auto-generated method stub
         List<Disk> configDisks = config.getDisks();
         List<Disk> secondaryDisks = Disk.findSecondary(configDisks);
@@ -252,7 +302,7 @@ public class SimpleProvisioner implements Provisioner {
         }
     }
 
-    private void discoverSwapDisk(LinodeConfig config, DiskMapper diskMapper) {
+    private void discoverSwapDisk(LinodeConfiguration config, DiskMapper diskMapper) {
         // TODO Auto-generated method stub
         List<Disk> disks = config.getDisks();
         Disk swap = Disk.findSwap(disks);
@@ -262,7 +312,7 @@ public class SimpleProvisioner implements Provisioner {
     }
 
     @Override
-    public void rebuildKeepData(LinodeConfig config) {
+    public void rebuildKeepData(LinodeConfiguration config) {
         // find the linodeId by config label
         logger.info("Rebuilding linode (keep data)");
         logger.info("Finding linode");
@@ -357,11 +407,12 @@ public class SimpleProvisioner implements Provisioner {
         JsonNode bootResult = linode.bootLinode(linodeId).asJson();
         int jobId = bootResult.get("DATA").get("JobID").asInt();
         JsonNode bootJobStatus = jobManager.waitForJob(linodeId, jobId);
+        createOrUpdateDomains(config, linodeId);
         logger.info("Done");
     }
 
     @Override
-    public void destroy(LinodeConfig config) {
+    public void destroy(LinodeConfiguration config) {
         // find the linodeId by config label
         logger.info("Destroying and rebuilding linode (destroy data)");
         logger.info("Finding linode");
@@ -377,8 +428,8 @@ public class SimpleProvisioner implements Provisioner {
         // find the diskId of the disk with the label found above.
         DiskMapper diskMapper = new DiskMapper(linodeDisks);
         List<Disk> disks = config.getDisks();
-        
-        disks.parallelStream().forEach( (disk) -> {
+
+        disks.parallelStream().forEach((disk) -> {
             try {
                 logger.info("Deleting disk {} ", disk.getLabel());
                 int diskId = diskMapper.getDiskIdFromLabel(disk.getLabel());

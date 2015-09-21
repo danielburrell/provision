@@ -5,7 +5,7 @@ import java.util.Map;
 /**
  * Created by terabyte on 23/12/2014.
  */
-public class LinodeConfig {
+public class LinodeConfiguration {
     private String description;
     private String services;
     private String region;
@@ -25,6 +25,7 @@ public class LinodeConfig {
     private boolean latestKernel; //set to true if you want to use the latest kernel
     private String kernel; //optional provide the kernel manually if you don't want to use the latest.
     private Map<String,String> stackScriptResponses;
+    private List<Domain> domains;
     
     public int getRam() {
         return ram;
@@ -197,5 +198,13 @@ public class LinodeConfig {
 
     public void setStackScriptResponses(Map<String, String> stackScriptResponses) {
         this.stackScriptResponses = stackScriptResponses;
+    }
+
+    public List<Domain> getDomains() {
+        return domains;
+    }
+
+    public void setDomains(List<Domain> domains) {
+        this.domains = domains;
     }
 }

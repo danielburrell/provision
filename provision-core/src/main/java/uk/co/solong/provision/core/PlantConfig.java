@@ -4,7 +4,7 @@ import java.util.List;
 public class PlantConfig {
 
     private String linodeKey;
-    private List<LinodeConfig> linodeConfigs;
+    private List<LinodeConfiguration> linodeConfigs;
 
     public String getLinodeKey() {
         return linodeKey;
@@ -14,11 +14,11 @@ public class PlantConfig {
         this.linodeKey = linodeKey;
     }
 
-    public List<LinodeConfig> getLinodeConfigs() {
+    public List<LinodeConfiguration> getLinodeConfigs() {
         return linodeConfigs;
     }
 
-    public void setLinodeConfigs(List<LinodeConfig> linodeConfigs) {
+    public void setLinodeConfigs(List<LinodeConfiguration> linodeConfigs) {
         this.linodeConfigs = linodeConfigs;
     }
 }
